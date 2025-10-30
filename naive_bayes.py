@@ -5,6 +5,15 @@ from collections import defaultdict
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import accuracy_score
 
+# Function to convert a column of string values to integer codes
+def str_column_to_int(dataset, column):
+    class_values = dataset[column].unique()
+    lookup = dict()
+    for i, value in enumerate(class_values):
+        lookup[value] = i
+    dataset[column] = dataset[column].map(lookup)
+    return lookup
+
 class GaussianNaiveBayes:
     def fit(self, X, y):
         self.classes_ = np.unique(y)
