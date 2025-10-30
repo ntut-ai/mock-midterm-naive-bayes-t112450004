@@ -1,4 +1,7 @@
+<<<<<<< HEAD
+=======
 predicted_species
+>>>>>>> 7d8dd89 (完成樸素貝葉斯分類器的實作並匯出預測結果)
 Iris-versicolor
 Iris-virginica
 Iris-setosa

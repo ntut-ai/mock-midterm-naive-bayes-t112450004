@@ -1,122 +1,151 @@
-import pytest
+
 import numpy as np
 import pandas as pd
 import os
-from naive_bayes import nb_train, nb_predict
+import zipfile
+import argparse
+from collections import Counter
 
-# --- 輔助函數：載入資料 ---
+# --- Helper Function for Label Encoding ---
 
-def load_data(filename):
+def str_column_to_int(dataset, column):
     """
-    從 'data' 資料夾載入 CSV 檔案。
-    假設 CSV 檔案沒有標頭 (header)。
+    Convert a string column to integer codes.
+
+    Args:
+        dataset: List of lists representing the dataset.
+        column: Index of the column to convert.
+
+    Returns:
+        A dictionary mapping string labels to integer codes.
     """
-    # 獲取當前測試檔案所在的目錄
-    test_dir = os.path.dirname(os.path.abspath(__file__))
-    
-    # 組合 'data' 資料夾和檔案的路徑
-    data_path = os.path.join(test_dir, 'data', filename)
-    
-    # 檢查檔案是否存在
-    if not os.path.exists(data_path):
-        # 如果檔案不存在，跳過這個測試
-        pytest.skip(f"資料檔案未找到: {data_path}")
-        
-    try:
-        # 使用 pandas 載入 CSV，假設沒有標頭 (header=None)
-        df = pd.read_csv(data_path, header=None)
-        
-        # 將 DataFrame 轉換為 numpy array，這是 nb_train 所需的格式
-        return df.to_numpy()
-    except Exception as e:
-        # 如果載入失敗，則測試失敗
-        pytest.fail(f"無法載入資料檔案 {data_path}: {e}")
+    class_values = [row[column] for row in dataset]
+    unique = set(class_values)
+    lookup = dict()
+    for i, value in enumerate(unique):
+        lookup[value] = i
+    for row in dataset:
+        row[column] = lookup[row[column]]
+    return lookup
 
-# --- 測試案例 1：檢查模型結構 ---
+# --- Naive Bayes Core Functions (adapted for nb_train and nb_predict) ---
 
-def test_naive_bayes_model():
+def _calculate_likelihood(x, mean, std):
     """
-    測試 nb_train 函數是否產生正確的模型結構。
-    (對應 test_naive_bayes_model)
+    計算給定特徵值 x 在指定類別下 (由 mean 和 std 定義) 的機率密度 (使用高斯分佈)。
+
+    Args:
+        x: 單一特徵值 (float)
+        mean: 該特徵在某類別下的平均值 (float)
+        std: 該特徵在某類別下的標準差 (float)
+
+    Returns:
+        該特徵值在指定類別下的機率密度 (float)。
     """
-    # 1. 載入訓練資料 (假設檔名為 iris_train.csv)
-    # 您的 data 資料夾中必須有這個檔案
-    train_data = load_data('iris_train.csv')
-    
-    # 2. 訓練模型
-    model = nb_train(train_data)
-    
-    # 3. 檢查模型是否為字典
-    assert isinstance(model, dict), "模型應該是一個字典 (dict)"
-    
-    # 4. 檢查模型是否包含所有類別
-    # 假設標籤已經是數字 (例如 0, 1, 2)
-    labels = train_data[:, -1]
-    unique_labels = np.unique(labels)
-    assert len(model.keys()) == len(unique_labels), "模型應包含所有類別的參數"
-    
-    # 5. 檢查第一個類別的參數結構
-    first_class_id = list(model.keys())[0]
-    class_params = model[first_class_id]
-    
-    assert 'prior' in class_params, "每個類別應包含 'prior' (先驗機率)"
-    assert 'means' in class_params, "每個類別應包含 'means' (平均值)"
-    assert 'stds' in class_params, "每個類別應包含 'stds' (標準差)"
-    
-    # 6. 檢查參數的格式是否正確
-    assert isinstance(class_params['prior'], (float, np.floating)), "'prior' 應該是浮點數"
-    assert isinstance(class_params['means'], np.ndarray), "'means' 應該是 numpy array"
-    assert isinstance(class_params['stds'], np.ndarray), "'stds' 應該是 numpy array"
-    
-    # 7. 檢查特徵數量是否一致
-    n_features = train_data.shape[1] - 1
-    assert len(class_params['means']) == n_features, "平均值陣列的長度應等於特徵數量"
-    assert len(class_params['stds']) == n_features, "標準差陣列的長度應等於特徵數量"
+    # 這裡實現高斯機率密度函數 (PDF)
+    # PDF(x, mean, std) = 1 / (sqrt(2 * pi) * std) * exp(-((x - mean)^2 / (2 * std^2)))
+    epsilon = 1e-6 # 一個小常數來避免除以零或 log(0)
+    std = np.maximum(std, epsilon) # 替換掉小於 epsilon 的標準差
 
-    # 8. 檢查所有先驗機率總和是否為 1
-    total_prior = sum(params['prior'] for params in model.values())
-    # 使用 pytest.approx 處理浮點數的比較
-    assert total_prior == pytest.approx(1.0), "所有類別的先驗機率總和應為 1.0"
 
-# --- 測試案例 2：檢查分類器準確度 ---
+    # 計算機率密度
+    exponent = np.exp(-((x - mean)**2) / (2 * std**2))
+    denominator = np.sqrt(2 * np.pi) * std
+    likelihood = exponent / denominator
 
-def test_naive_bayes_classifier():
+    return likelihood
+
+def nb_train(train_data):
     """
-    測試分類器的整體準確度。
-    (對應 test_naive_bayes_classifier)
-    """
-    # 1. 載入訓練和測試資料
-    # 您的 data 資料夾中必須有這兩個檔案
-    train_data = load_data('iris_train.csv')
-    test_data = load_data('iris_test.csv')
-    
-    if test_data.shape[0] == 0:
-        pytest.fail("測試資料為空，無法計算準確度")
+    根據訓練資料計算 Naive Bayes 模型參數。
 
-    # 2. 訓練模型
-    model = nb_train(train_data)
-    
-    correct_predictions = 0
-    total_predictions = test_data.shape[0]
-    
-    # 3. 遍歷測試資料進行預測
-    for row in test_data:
-        x_test = row[:-1]  # 特徵 (除了最後一欄)
-        y_true = row[-1]   # 真正的標籤 (最後一欄)
-        
-        # 進行預測
-        y_pred = nb_predict(model, x_test)
-        
-        # 4. 比較預測結果和真實標籤
-        # 假設標籤是數字 (int 或 float)
-        if int(y_pred) == int(y_true):
-            correct_predictions += 1
-            
-    # 5. 計算準確度
-    accuracy = correct_predictions / total_predictions
-    
-    print(f"\n[測試] 分類器準確度: {accuracy * 100:.2f}%")
-    
-    # 6. 斷言準確度高於一個門檻值
-    # 對於 Iris 資料集，Naive Bayes 應該有不錯的表現 (例如 > 85%)
-    assert accuracy > 0.85, f"準確度 {accuracy:.2f} 低於 0.85 的門檻"
+    Args:
+        train_data: 訓練資料 (numpy array)，最後一欄是標籤。
+
+    Returns:
+        一個字典，包含模型參數 (每個類別的先驗機率，以及每個特徵在每個類別下的平均值和標準差)。
+    """
+    # 將 numpy array 轉換回 list of lists，以便使用 str_column_to_int
+    train_data_list = train_data.tolist()
+
+    # 對標籤欄進行編碼 (如果需要，假設標籤在最後一欄)
+    # 注意：nb_test.py 中似乎已經處理了標籤到 ID 的轉換，
+    # 但為了完整性，這裡保留 str_column_to_int 的用法。
+    # 如果您的原始資料標籤已經是數字，可以跳過此步驟。
+    # 這裡假設 train_data_list 的最後一欄是字串標籤
+    if isinstance(train_data_list[0][-1], str):
+        label_id_dict = str_column_to_int(train_data_list, len(train_data_list[0]) - 1)
+    else:
+        # 如果標籤已經是數字，建立一個簡單的 ID 到標籤的對應 (如果需要)
+        unique_labels = np.unique(np.array(train_data_list)[:, -1])
+        label_id_dict = {label: i for i, label in enumerate(unique_labels)}
+
+
+    # 將轉換後的資料轉回 numpy array (如果需要)
+    # train_data_processed = np.array(train_data_list) # 這行可能不需要，取決於後續如何使用
+
+    # 從處理後的資料中分離特徵和標籤
+    # 假設處理後的標籤在最後一欄且已轉換為數字 ID
+    X = np.array([row[:-1] for row in train_data_list]) # 特徵
+    y = np.array([row[-1] for row in train_data_list]) # 標籤 (數字 ID)
+
+
+    classes = np.unique(y)
+    n_features = X.shape[1]
+    n_classes = len(classes)
+
+    # 初始化儲存參數的字典
+    model = {}
+
+    # 計算每個類別的參數
+    for i, c_id in enumerate(classes):
+        X_c = X[y == c_id]
+
+        # 計算先驗機率 P(class)
+        prior = len(X_c) / len(X)
+
+        # 計算每個特徵在該類別下的平均值和標準差
+        means = X_c.mean(axis=0)
+        stds = X_c.std(axis=0)
+
+        # 儲存參數
+        model[c_id] = {
+            'prior': prior,
+            'means': means,
+            'stds': stds
+        }
+
+    return model
+
+def nb_predict(model, x):
+    """
+    使用 Naive Bayes 模型預測單一樣本的類別。
+
+    Args:
+        model: 訓練好的模型參數字典。
+        x: 單一樣本的特徵向量 (numpy array of shape (n_features,))。
+
+    Returns:
+        預測的類別標籤 ID (整數).
+    """
+    posteriors_log = []
+
+    # 計算每個類別的後驗機率的 log (P(class | x))
+    # log(P(class | x)) ~ log(P(x | class)) + log(P(class))
+    # log(P(x | class)) = sum(log(P(xi | class)))
+
+    for class_id, params in model.items():
+        # 計算先驗機率的 log
+        prior_log = np.log(params['prior'])
+
+        # 計算每個特徵在該類別下的 log 機率密度並加總
+        likelihood_log_sum = np.sum(np.log(_calculate_likelihood(x, params['means'], params['stds'])))
+
+        # 計算後驗機率的 log (未歸一化)
+        posterior_log = prior_log + likelihood_log_sum
+        posteriors_log.append((class_id, posterior_log))
+
+    # 找到具有最高後驗機率 log 值的類別 ID
+    best_class_id = max(posteriors_log, key=lambda item: item[1])[0]
+
+    return best_class_id
