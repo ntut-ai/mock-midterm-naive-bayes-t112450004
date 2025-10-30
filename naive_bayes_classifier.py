@@ -1,47 +1,45 @@
 
 import numpy as np
-import pandas as pd
+from scipy.stats import norm
 
 class NaiveBayesClassifier:
     def __init__(self):
-        self.class_priors = {}
-        self.feature_means = {}
-        self.feature_variances = {}
         self.classes = None
+        self.class_prior = None
+        self.mean = None
+        self.variance = None
 
-    def fit(self, X_train, y_train):
-        self.classes = np.unique(y_train)
-        n_samples, n_features = X_train.shape
+    def fit(self, X, y):
+        self.classes = np.unique(y)
+        n_classes = len(self.classes)
+        n_features = X.shape[1]
 
-        for cls in self.classes:
-            X_cls = X_train[y_train == cls]
-            self.class_priors[cls] = len(X_cls) / n_samples
-            self.feature_means[cls] = X_cls.mean(axis=0)
-            self.feature_variances[cls] = X_cls.var(axis=0)
+        self.class_prior = np.zeros(n_classes)
+        self.mean = np.zeros((n_classes, n_features))
+        self.variance = np.zeros((n_classes, n_features))
 
-    def _gaussian_probability(self, x, mean, variance):
-        # Add a small epsilon to variance to avoid division by zero
-        variance = variance + 1e-6
-        exponent = -((x - mean) ** 2) / (2 * variance)
-        numerator = np.exp(exponent)
-        denominator = np.sqrt(2 * np.pi * variance)
-        return numerator / denominator
+        for i, c in enumerate(self.classes):
+            X_c = X[y == c]
+            self.class_prior[i] = X_c.shape[0] / X.shape[0]
+            self.mean[i, :] = X_c.mean(axis=0)
+            self.variance[i, :] = X_c.var(axis=0)
 
-    def predict_proba(self, X_test):
-        n_samples = X_test.shape[0]
+    def predict_proba(self, X):
+        n_samples = X.shape[0]
         n_classes = len(self.classes)
         probabilities = np.zeros((n_samples, n_classes))
 
-        for i, cls in enumerate(self.classes):
-            prior = self.class_priors[cls]
-            likelihood = np.prod(self._gaussian_probability(X_test, self.feature_means[cls], self.feature_variances[cls]), axis=1)
-            probabilities[:, i] = prior * likelihood
+        for i, c in enumerate(self.classes):
+            prior = np.log(self.class_prior[i])
+            likelihood = np.sum(np.log(norm.pdf(X, self.mean[i, :], np.sqrt(self.variance[i, :]))), axis=1)
+            probabilities[:, i] = prior + likelihood
 
-        # Normalize probabilities
-        row_sums = probabilities.sum(axis=1)[:, np.newaxis]
-        probabilities = probabilities / row_sums
+        # Normalize to get actual probabilities (optional, argmax is sufficient for prediction)
+        # probabilities = np.exp(probabilities)
+        # probabilities = probabilities / np.sum(probabilities, axis=1, keepdims=True)
+
         return probabilities
 
-    def predict(self, X_test):
-        probabilities = self.predict_proba(X_test)
+    def predict(self, X):
+        probabilities = self.predict_proba(X)
         return self.classes[np.argmax(probabilities, axis=1)]
