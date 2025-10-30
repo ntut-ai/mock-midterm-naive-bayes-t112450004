@@ -47,30 +47,60 @@ class GaussianNaiveBayes:
             y_pred.append(self.classes_[np.argmax(posteriors)])
         return np.array(y_pred)
 
+# --- Functions to be called by nb_test.py ---
+
+def nb_train(X_train, y_train):
+    """
+    Trains the Gaussian Naive Bayes model.
+
+    Args:
+        X_train (pd.DataFrame or np.ndarray): Training features.
+        y_train (pd.Series or np.ndarray): Training labels.
+
+    Returns:
+        GaussianNaiveBayes: Trained model instance.
+    """
+    model = GaussianNaiveBayes()
+    model.fit(X_train, y_train)
+    return model
+
+def nb_predict(model, X_test):
+    """
+    Makes predictions using the trained Gaussian Naive Bayes model.
+
+    Args:
+        model (GaussianNaiveBayes): Trained model instance.
+        X_test (pd.DataFrame or np.ndarray): Test features.
+
+    Returns:
+        np.ndarray: Predicted labels.
+    """
+    y_pred = model.predict(X_test)
+    return y_pred
+
+# --- Example usage (can be removed if only using via nb_test.py) ---
 # Load the datasets
-iris_df = pd.read_csv("/content/mock-midterm-naive-bayes-t112450004/data/IRIS.csv")
-iris_test_df = pd.read_csv("/content/mock-midterm-naive-bayes-t112450004/data/iris_test.csv")
+# iris_df = pd.read_csv("/content/mock-midterm-naive-bayes-t112450004/data/IRIS.csv")
+# iris_test_df = pd.read_csv("/content/mock-midterm-naive-bayes-t112450004/data/iris_test.csv")
 
 # Prepare the data
-X = iris_df[['sepal_length', 'sepal_width', 'petal_length', 'petal_width']]
-y = iris_df['species']
-X_test = iris_test_df[['sepal_length', 'sepal_width', 'petal_length', 'petal_width']]
-y_test = iris_test_df['species'] # Keep y_test for evaluation
+# X = iris_df[['sepal_length', 'sepal_width', 'petal_length', 'petal_width']]
+# y = iris_df['species']
+# X_test = iris_test_df[['sepal_length', 'sepal_width', 'petal_length', 'petal_width']]
+# y_test = iris_test_df['species'] # Keep y_test for evaluation
 
-# Train the model
-model = GaussianNaiveBayes()
-model.fit(X, y) # Train on the full training data
+# Train the model using nb_train
+# trained_model = nb_train(X, y)
 
-# Make predictions
-y_pred = model.predict(X_test)
+# Make predictions using nb_predict
+# predictions = nb_predict(trained_model, X_test)
 
 # Evaluate the model (Optional - can be done in the notebook if preferred)
-accuracy = accuracy_score(y_test, y_pred)
-print(f"模型在測試集上的準確度為: {accuracy:.4f}")
+# accuracy = accuracy_score(y_test, predictions)
+# print(f"模型在測試集上的準確度為: {accuracy:.4f}")
 
-# Export predictions
-predictions_df = X_test.copy()
-predictions_df['predicted_species'] = y_pred
-predictions_df.to_csv("/content/mock-midterm-naive-bayes-t112450004/predictions.csv", index=False)
-
-print("預測結果已匯出至 /content/mock-midterm-naive-bayes-t112450004/predictions.csv")
+# Export predictions (Optional - can be done in the notebook if preferred)
+# predictions_df = X_test.copy()
+# predictions_df['predicted_species'] = predictions
+# predictions_df.to_csv("/content/mock-midterm-naive-bayes-t112450004/predictions.csv", index=False)
+# print("預測結果已匯出至 /content/mock-midterm-naive-bayes-t112450004/predictions.csv")
